@@ -1,0 +1,62 @@
+name: Build TalkToMe Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Extract TKM app
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f TKM.zip || { echo "::error::TKM.zip não encontrado na raiz do repositório."; exit 1; }
+          mkdir -p app
+          unzip -q TKM.zip -d app
+
+      - name: Locate Android Gradle project
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          WRAPPER="$(find app -type f -name gradlew -print -quit)"
+          if [ -z "$WRAPPER" ]; then
+            echo "::error::Não encontrei o Gradle Wrapper (gradlew) dentro de TKM.zip. Preciso da estrutura Android/Gradle do projeto para gerar o APK."
+            exit 1
+          fi
+          PROJECT_DIR="$(dirname "$WRAPPER")"
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          chmod +x "$WRAPPER"
+
+      - name: Build Android APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TalkToMe-Android-APK
+          path: |
+            ${{ steps.project.outputs.dir }}/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 14
