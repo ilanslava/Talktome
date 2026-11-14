@@ -12,6 +12,9 @@ jobs:
   android:
     name: Build debug APK
     runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
@@ -28,8 +31,17 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK licenses and install required packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit)"
+          fi
+          test -x "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" --install "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Extract Android project
         shell: bash
@@ -38,7 +50,8 @@ jobs:
           test -f TKM.zip || { echo "::error::TKM.zip não encontrado na raiz do repositório."; exit 1; }
           mkdir -p source
           unzip -q TKM.zip -d source
-          test -f source/TalkToMe/settings.gradle.kts || { echo "::error::Estrutura Android esperada não encontrada em TKM.zip."; exit 1; }
+          test -f source/TalkToMe/settings.gradle.kts || { echo "::error::Projeto Android não encontrado dentro de TKM.zip."; exit 1; }
+          test -f source/TalkToMe/app/build.gradle.kts || { echo "::error::Módulo Android app não encontrado."; exit 1; }
 
       - name: Build debug APK
         working-directory: source/TalkToMe
