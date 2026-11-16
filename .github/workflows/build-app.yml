@@ -1,0 +1,87 @@
+name: Build TalkToMe App
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "TKM.zip"
+      - ".github/workflows/build-app.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle 8.7
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Extract TKM project
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f TKM.zip || { echo "::error::TKM.zip was not found in the repository root."; exit 1; }
+          mkdir -p source
+          unzip -q TKM.zip -d source
+
+      - name: Locate Android Gradle project
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_DIR=""
+          while IFS= read -r settings_file; do
+            candidate="$(dirname "$settings_file")"
+            if [ -f "$candidate/app/build.gradle.kts" ] || [ -f "$candidate/app/build.gradle" ]; then
+              PROJECT_DIR="$candidate"
+              break
+            fi
+          done < <(find source -type f \( -name settings.gradle.kts -o -name settings.gradle \) -print)
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "::error::Could not find an Android Gradle project with an app module inside TKM.zip."
+            echo "Files found in the archive:"
+            find source -maxdepth 4 -type f | head -200
+            exit 1
+          fi
+
+          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project found at: $PROJECT_DIR"
+
+      - name: Build debug APK
+        working-directory: ${{ steps.project.outputs.dir }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TalkToMe-Android-APK
+          path: ${{ steps.project.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
